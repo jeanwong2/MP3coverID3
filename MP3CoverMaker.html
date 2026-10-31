@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MP3 封面製作器</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --panel: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --line: #d2d2d7; --accent: #0071e3; --accent-text: #fff; --ok: #1a8f3c; --err: #c9302c; --warn: #b26a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161617; --panel: #232325; --text: #f5f5f7; --muted: #a1a1a6;
+      --line: #3a3a3c; --accent: #2997ff; --ok: #4cd964; --err: #ff6b63; --warn: #ffb340; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang HK", "PingFang TC", "Helvetica Neue", sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 22px 16px 60px; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .drop { border: 2px dashed var(--line); border-radius: 14px; background: var(--panel);
+    padding: 30px 16px; text-align: center; cursor: pointer; transition: .15s; }
+  .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+  .drop b { font-size: 17px; }
+  .drop small { display: block; color: var(--muted); margin-top: 6px; }
+  .panel { background: var(--panel); border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
+  .panel h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+  .opts { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .opts label { display: flex; align-items: center; gap: 6px; }
+  .muted { color: var(--muted); }
+  .warn { color: var(--warn); font-size: 13px; }
+  select, input[type=text] { font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; }
+  button { font: inherit; border-radius: 8px; padding: 7px 14px; cursor: pointer;
+    background: var(--panel); color: var(--text); border: 1px solid var(--line); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.pulse { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 30%, transparent); } }
+  button:disabled { opacity: .45; cursor: default; animation: none; }
+  .outrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
+  #outLabel { font-weight: 600; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0; }
+  .prog { flex: 1 1 220px; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+  .prog > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #status { color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 6px; position: relative; }
+  .card canvas { width: 100%; aspect-ratio: 1; border-radius: 6px; display: block; }
+  .card .fn { font-size: 11px; color: var(--muted); word-break: break-all; }
+  .card input[type=text] { width: 100%; font-size: 13px; padding: 4px 7px; }
+  .card .st { font-size: 12px; }
+  .card .x { position: absolute; top: 12px; right: 12px; padding: 0 7px; font-size: 13px; line-height: 22px;
+    background: rgba(0,0,0,.45); color: #fff; border: 0; border-radius: 11px; }
+  .card.working { outline: 2px solid var(--accent); }
+  .card.done { opacity: .55; }
+  .st.ok { color: var(--ok); } .st.err { color: var(--err); }
+  #log { color: var(--err); font-size: 13px; white-space: pre-wrap; }
+  .help { margin-top: 24px; color: var(--muted); font-size: 13px; padding-left: 18px; }
+  .help li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 data-t="title"></h1>
+      <p class="sub" data-t="sub"></p>
+    </div>
+    <button id="langBtn">English</button>
+  </header>
+
+  <div class="drop" id="drop">
+    <b data-t="drop"></b>
+    <small data-t="dropSmall"></small>
+    <input type="file" id="pick" accept=".mp3,audio/mpeg" multiple hidden>
+  </div>
+
+  <div class="panel">
+    <h2 data-t="outTitle"></h2>
+    <div class="opts">
+      <label><input type="radio" name="mode" value="folder" id="modeFolder"> <span data-t="modeFolder"></span></label>
+      <label><input type="radio" name="mode" value="zip" id="modeZip"> <span data-t="modeZip"></span></label>
+      <label id="batchWrap"><span data-t="batch"></span>
+        <select id="batch"><option>10</option><option selected>20</option><option>50</option></select>
+      </label>
+    </div>
+    <div class="outrow" id="folderRow">
+      <button id="dirBtn" data-t="pickDir"></button>
+      <span><span id="outLabel"></span></span>
+      <span class="muted" data-t="pickHint"></span>
+    </div>
+    <div class="warn" id="noFolder" hidden data-t="noFolder"></div>
+    <div class="opts" style="margin-top:10px">
+      <label><input type="checkbox" id="auto" checked> <span data-t="auto"></span></label>
+      <label><input type="checkbox" id="autoClear" checked> <span data-t="autoClear"></span></label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 data-t="coverTitle"></h2>
+    <div class="opts">
+      <label><span data-t="fmt"></span>
+        <select id="fmt">
+          <option value="at" data-t="fmtAT"></option>
+          <option value="ta" data-t="fmtTA"></option>
+          <option value="t" data-t="fmtT"></option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="strip" checked> <span data-t="strip"></span></label>
+      <label><input type="checkbox" id="shownum" checked> <span data-t="shownum"></span></label>
+      <label><span data-t="style"></span>
+        <select id="style">
+          <option value="grad" data-t="grad"></option>
+          <option value="dark" data-t="dark"></option>
+          <option value="light" data-t="light"></option>
+        </select>
+      </label>
+      <label><span data-t="font"></span>
+        <select id="font">
+          <option value='"PingFang HK","PingFang TC","Microsoft JhengHei","PingFang SC",sans-serif' data-t="fontSans"></option>
+          <option value='"Songti TC","LiSong Pro","PMingLiU","Songti SC",serif' data-t="fontSong"></option>
+          <option value='"Kaiti TC","BiauKai","DFKai-SB","Kaiti SC",serif' data-t="fontKai"></option>
+        </select>
+      </label>
+      <label><span data-t="size"></span>
+        <select id="size">
+          <option value="300">300 px</option>
+          <option value="500" selected>500 px</option>
+          <option value="800">800 px</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="bar">
+    <button class="primary" id="startBtn" data-t="start" disabled></button>
+    <button id="clearBtn" data-t="clear" disabled></button>
+    <div class="prog"><div id="progFill"></div></div>
+    <span id="status"></span>
+  </div>
+  <div id="log"></div>
+
+  <div class="grid" id="grid"></div>
+
+  <ul class="help">
+    <li data-t="help1"></li>
+    <li data-t="help2"></li>
+    <li data-t="help3"></li>
+    <li data-t="help4"></li>
+  </ul>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* ---------------- language ---------------- */
+const STR = {
+  "zh-HK": {
+    title: "MP3 封面製作器",
+    sub: "用檔案名稱製作專輯封面，連同 ID3 標籤寫入 MP3，車機唔顯示中文都睇到歌名。全部喺本機處理，唔使上網。",
+    drop: "將 MP3 或者成個資料夾拖到呢度",
+    dropSmall: "或者撳一下揀檔案",
+    outTitle: "輸出",
+    modeFolder: "直接存入桌面「Output」資料夾",
+    modeZip: "分批打包成 ZIP 下載",
+    batch: "每批",
+    pickDir: "選擇輸出位置…",
+    changeDir: "更改位置…",
+    reuseDir: "繼續使用 {0}",
+    pickHint: "喺彈出視窗揀「桌面」，程式會自動開一個 Output 資料夾。",
+    notSet: "未選擇",
+    outTo: "輸出至：{0}",
+    noFolder: "呢個瀏覽器（Safari）唔可以直接存入資料夾，會用 ZIP 模式。想直接存入桌面 Output，請用 Google Chrome 開啟呢個檔案。",
+    auto: "拖入後自動開始轉換",
+    autoClear: "完成後自動清除（釋放記憶體）",
+    coverTitle: "封面",
+    fmt: "檔名格式", fmtAT: "歌手 - 歌名", fmtTA: "歌名 - 歌手", fmtT: "成個檔名做歌名",
+    strip: "去除開頭編號", shownum: "封面顯示編號",
+    style: "風格", grad: "彩色", dark: "深色", light: "淺色",
+    font: "字體", fontSans: "蘋方", fontSong: "宋體", fontKai: "楷體",
+    size: "尺寸",
+    start: "開始轉換", clear: "清除全部",
+    title_ph: "歌名", artist_ph: "歌手",
+    waiting: "等候中", working: "處理緊…", done: "✓ 完成", error: "出錯",
+    count: "完成 {0} / {1}", errCount: "，出錯 {0}", queued: "共 {0} 首等候中",
+    needDir: "請先撳「選擇輸出位置」，揀桌面。",
+    zipSaved: "已下載第 {0} 批（{1} 首）",
+    allDone: "全部完成！",
+    remove: "移除",
+    help1: "用 Chrome：每首轉好即刻存入 桌面/Output，唔會佔用記憶體。第一次要揀一次位置，之後會記住。",
+    help2: "用 Safari：每 20 首打包一個 ZIP 下載。可以喺 Safari 設定 → 一般 →「檔案下載位置」揀 桌面/Output。如果問「允許多個下載」，請揀允許。",
+    help3: "原本嘅檔案唔會改動。以「._」開頭嘅隱藏檔會自動略過。",
+    help4: "如果車機唔顯示封面，試下揀 300 px 再轉一次。",
+  },
+  en: {
+    title: "MP3 Cover Maker",
+    sub: "Makes cover art from each file name and writes it into the MP3 (ID3 tag), so the song name shows even when the car can't display Chinese. Everything runs locally, offline.",
+    drop: "Drop MP3 files or a whole folder here",
+    dropSmall: "or click to choose files",
+    outTitle: "Output",
+    modeFolder: "Save straight into Desktop “Output” folder",
+    modeZip: "Download in ZIP batches",
+    batch: "Per batch",
+    pickDir: "Choose output location…",
+    changeDir: "Change location…",
+    reuseDir: "Keep using {0}",
+    pickHint: "Pick “Desktop” in the dialog; an Output folder is created automatically.",
+    notSet: "Not chosen",
+    outTo: "Saving to: {0}",
+    noFolder: "This browser (Safari) can't save straight into a folder, so ZIP mode is used. Open this file in Google Chrome to save directly to Desktop/Output.",
+    auto: "Start converting as soon as files are dropped",
+    autoClear: "Clear finished songs (frees memory)",
+    coverTitle: "Cover",
+    fmt: "File name format", fmtAT: "Artist - Title", fmtTA: "Title - Artist", fmtT: "Whole name as title",
+    strip: "Remove leading track no.", shownum: "Show track no. on cover",
+    style: "Style", grad: "Colour", dark: "Dark", light: "Light",
+    font: "Font", fontSans: "PingFang", fontSong: "Songti", fontKai: "Kaiti",
+    size: "Size",
+    start: "Start", clear: "Clear all",
+    title_ph: "Title", artist_ph: "Artist",
+    waiting: "Waiting", working: "Working…", done: "✓ Done", error: "Error",
+    count: "Done {0} / {1}", errCount: ", {0} errors", queued: "{0} songs waiting",
+    needDir: "Choose an output location first (pick Desktop).",
+    zipSaved: "Downloaded batch {0} ({1} songs)",
+    allDone: "All done!",
+    remove: "Remove",
+    help1: "In Chrome: each song is saved to Desktop/Output as soon as it's converted, so memory stays low. You choose the location once; it's remembered.",
+    help2: "In Safari: every 20 songs are downloaded as one ZIP. You can set Safari Settings → General → File download location to Desktop/Output. If asked to allow multiple downloads, allow it.",
+    help3: "Your original files are not changed. Hidden “._” files are skipped automatically.",
+    help4: "If the car doesn't show the cover, try 300 px and convert again.",
+  },
+};
+let lang = "zh-HK";
+try { lang = localStorage.getItem("lang") || "zh-HK"; } catch {}
+function t(key, ...a) { return (STR[lang][key] ?? key).replace(/\{(\d)\}/g, (_, i) => a[i]); }
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.title = t("title");
+  document.querySelectorAll("[data-t]").forEach(el => el.textContent = t(el.dataset.t));
+  $("langBtn").textContent = lang === "en" ? "繁體中文" : "English";
+  for (const it of items) { it.ti.placeholder = t("title_ph"); it.ar.placeholder = t("artist_ph"); setCardState(it); }
+  renderOut(); renderStatus();
+}
+$("langBtn").onclick = () => { lang = lang === "en" ? "zh-HK" : "en"; try { localStorage.setItem("lang", lang); } catch {} applyLang(); };
+
+/* ---------------- file name parsing ---------------- */
+function parseName(fileName) {
+  let base = fileName.replace(/\.mp3$/i, "").trim();
+  let track = "";
+  if ($("strip").checked) {
+    const m = base.match(/^\s*(\d{1,3})(?:\s*[-._、．)\]]\s*|\s+)(?=\S)/);
+    if (m) { track = String(parseInt(m[1], 10)); base = base.slice(m[0].length); }
+  }
+  let title = base, artist = "";
+  const fmt = $("fmt").value;
+  if (fmt !== "t") {
+    const m = base.match(/\s*[-–—]\s*/);
+    if (m && m.index > 0 && m.index + m[0].length < base.length) {
+      const a = base.slice(0, m.index).trim(), b = base.slice(m.index + m[0].length).trim();
+      if (fmt === "at") { artist = a; title = b; } else { title = a; artist = b; }
+    }
+  }
+  return { title, artist, track };
+}
+
+/* ---------------- cover drawing ---------------- */
+function hashStr(s) { let h = 2166136261; for (const c of s) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+
+const CJK = "⺀-鿿豈-﫿＀-￯가-힯　-〿";
+const TOKEN_RE = new RegExp(`[${CJK}]|[^\\s${CJK}]+|\\s+`, "g");
+const NO_LINE_START = /^[，。、！？；：）》」』】,.!?;:)\]]/;
+
+function wrap(ctx, text, maxW) {
+  const tokens = text.match(TOKEN_RE) || [];
+  const lines = []; let line = "";
+  const push = () => { if (line.trim()) lines.push(line.trim()); line = ""; };
+  for (const tk of tokens) {
+    if (/^\s+$/.test(tk)) { if (line) line += " "; continue; }
+    if (ctx.measureText(line + tk).width <= maxW) { line += tk; continue; }
+    if (NO_LINE_START.test(tk) && line.trim()) { line += tk; continue; }
+    if (line.trim()) push();
+    if (ctx.measureText(tk).width > maxW) {
+      for (const ch of tk) { if (ctx.measureText(line + ch).width > maxW && line) push(); line += ch; }
+    } else line = tk;
+  }
+  push();
+  return lines;
+}
+
+function fit(ctx, text, family, weight, maxW, maxLines, maxH, maxSize, minSize) {
+  if (!text) return { size: 0, lines: [], h: 0 };
+  for (let size = maxSize; size >= minSize; size = Math.floor(size * 0.94)) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    const lines = wrap(ctx, text, maxW);
+    const h = lines.length * size * 1.2;
+    if (lines.length <= maxLines && h <= maxH) return { size, lines, h };
+  }
+  ctx.font = `${weight} ${minSize}px ${family}`;
+  let lines = wrap(ctx, text, maxW);
+  if (lines.length > maxLines) {
+    lines = lines.slice(0, maxLines);
+    let last = lines[maxLines - 1];
+    while (last && ctx.measureText(last + "…").width > maxW) last = last.slice(0, -1);
+    lines[maxLines - 1] = last + "…";
+  }
+  return { size: minSize, lines, h: lines.length * minSize * 1.2 };
+}
+
+function drawCover(canvas, it, S) {
+  const style = $("style").value, family = $("font").value;
+  canvas.width = canvas.height = S;
+  const ctx = canvas.getContext("2d");
+  const hue = hashStr(it.title + "|" + it.artist) % 360;
+  let fg, sub, accent;
+  if (style === "grad") {
+    const g = ctx.createLinearGradient(0, 0, S, S);
+    g.addColorStop(0, `hsl(${hue},60%,42%)`);
+    g.addColorStop(1, `hsl(${(hue + 50) % 360},55%,20%)`);
+    ctx.fillStyle = g; fg = "#fff"; sub = "rgba(255,255,255,.82)"; accent = "rgba(255,255,255,.10)";
+  } else if (style === "dark") {
+    ctx.fillStyle = "#121214"; fg = "#fff"; sub = `hsl(${hue},70%,72%)`; accent = `hsla(${hue},70%,60%,.14)`;
+  } else {
+    ctx.fillStyle = "#f3efe6"; fg = "#1b1b1b"; sub = `hsl(${hue},45%,35%)`; accent = `hsla(${hue},45%,40%,.10)`;
+  }
+  ctx.fillRect(0, 0, S, S);
+  ctx.strokeStyle = accent; ctx.lineWidth = S * 0.012;
+  for (let r = S * 0.16; r < S * 0.62; r += S * 0.07) { ctx.beginPath(); ctx.arc(S * 0.88, S * 0.88, r, 0, Math.PI * 2); ctx.stroke(); }
+
+  const pad = S * 0.08, W = S - pad * 2;
+  ctx.textBaseline = "top"; ctx.textAlign = "left";
+  if (it.track && $("shownum").checked) {
+    ctx.font = `600 ${Math.round(S * 0.07)}px ${family}`;
+    ctx.fillStyle = sub; ctx.fillText(it.track.padStart(2, "0"), pad, pad * 0.9);
+  }
+  const T = fit(ctx, it.title || " ", family, 700, W, 4, S * 0.56, Math.round(S * 0.2), Math.round(S * 0.06));
+  const A = fit(ctx, it.artist, family, 500, W, 2, S * 0.2, Math.round(S * 0.085), Math.round(S * 0.045));
+  const gap = A.lines.length ? S * 0.05 : 0;
+  let y = (S - (T.h + gap + A.h)) / 2;
+  ctx.fillStyle = fg; ctx.font = `700 ${T.size}px ${family}`;
+  for (const l of T.lines) { ctx.fillText(l, pad, y + T.size * 0.1); y += T.size * 1.2; }
+  if (A.lines.length) {
+    y += gap - S * 0.02;
+    ctx.fillStyle = sub; ctx.fillRect(pad, y, S * 0.08, Math.max(2, S * 0.008));
+    y += S * 0.03;
+    ctx.font = `500 ${A.size}px ${family}`;
+    for (const l of A.lines) { ctx.fillText(l, pad, y + A.size * 0.1); y += A.size * 1.2; }
+  }
+}
+
+const workCanvas = document.createElement("canvas"); // one shared full-size canvas for encoding
+function coverJpeg(it) {
+  drawCover(workCanvas, it, +$("size").value);
+  return new Promise(res => workCanvas.toBlob(b => b.arrayBuffer().then(ab => res(new Uint8Array(ab))), "image/jpeg", 0.9));
+}
+
+/* ---------------- ID3v2 tag writing (BEGIN-ID3) ---------------- */
+function ss2int(b, o) { return ((b[o] & 0x7f) << 21) | ((b[o + 1] & 0x7f) << 14) | ((b[o + 2] & 0x7f) << 7) | (b[o + 3] & 0x7f); }
+function int2ss(n) { return [(n >>> 21) & 0x7f, (n >>> 14) & 0x7f, (n >>> 7) & 0x7f, n & 0x7f]; }
+function be32(b, o) { return ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0; }
+function int2be(n) { return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]; }
+function ascii(s) { return Array.from(s, c => c.charCodeAt(0)); }
+
+function makeFrame(id, body, major) {
+  const out = new Uint8Array(10 + body.length);
+  out.set(ascii(id), 0);
+  out.set(major === 4 ? int2ss(body.length) : int2be(body.length), 4);
+  out.set(body, 10);
+  return out;
+}
+function textFrame(id, text, major) {
+  const units = [];
+  for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); units.push(c & 0xff, c >> 8); }
+  return makeFrame(id, new Uint8Array([1, 0xff, 0xfe, ...units, 0, 0]), major);
+}
+function apicFrame(jpeg, major) {
+  const head = [0, ...ascii("image/jpeg"), 0, 3, 0];
+  const body = new Uint8Array(head.length + jpeg.length);
+  body.set(head, 0); body.set(jpeg, head.length);
+  return makeFrame("APIC", body, major);
+}
+
+// MP3 bytes in, MP3 bytes out: keeps existing tag frames, replaces any old picture with the new cover.
+function embedCover(mp3, jpeg, fallbackTitle, fallbackArtist) {
+  let audioStart = 0, frames = null, major = 3, first = true;
+  while (audioStart + 10 <= mp3.length && mp3[audioStart] === 0x49 && mp3[audioStart + 1] === 0x44 && mp3[audioStart + 2] === 0x33) {
+    const o = audioStart, ver = mp3[o + 3], flags = mp3[o + 5], size = ss2int(mp3, o + 6);
+    const end = Math.min(o + 10 + size, mp3.length);
+    if (first && (ver === 3 || ver === 4) && !(flags & 0x80)) {
+      major = ver; frames = [];
+      let p = o + 10;
+      if (flags & 0x40) p += ver === 3 ? be32(mp3, p) + 4 : ss2int(mp3, p);
+      while (p + 10 <= end && mp3[p] !== 0) {
+        const id = String.fromCharCode(mp3[p], mp3[p + 1], mp3[p + 2], mp3[p + 3]);
+        if (!/^[A-Z0-9]{4}$/.test(id)) break;
+        const fs = ver === 4 ? ss2int(mp3, p + 4) : be32(mp3, p + 4);
+        if (p + 10 + fs > end) break;
+        if (id !== "APIC") frames.push(mp3.subarray(p, p + 10 + fs));
+        p += 10 + fs;
+      }
+    }
+    first = false;
+    audioStart = o + 10 + size + ((ver === 4 && (flags & 0x10)) ? 10 : 0);
+  }
+  audioStart = Math.min(audioStart, mp3.length);
+  if (!frames) frames = [];
+  const has = id => frames.some(f => String.fromCharCode(f[0], f[1], f[2], f[3]) === id);
+  if (fallbackTitle && !has("TIT2")) frames.push(textFrame("TIT2", fallbackTitle, major));
+  if (fallbackArtist && !has("TPE1")) frames.push(textFrame("TPE1", fallbackArtist, major));
+
+  frames.push(apicFrame(jpeg, major));
+  const padding = 1024;
+  const tagSize = frames.reduce((n, f) => n + f.length, 0) + padding;
+  const out = new Uint8Array(10 + tagSize + (mp3.length - audioStart));
+  out.set([0x49, 0x44, 0x33, major, 0, 0, ...int2ss(tagSize)], 0);
+  let p = 10;
+  for (const f of frames) { out.set(f, p); p += f.length; }
+  p += padding;
+  out.set(mp3.subarray(audioStart), p);
+  return out;
+}
+/* ---------------- (END-ID3) ---------------- */
+
+/* ---------------- minimal ZIP, no compression (BEGIN-ZIP) ---------------- */
+const CRC_TABLE = (() => { const tb = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; tb[n] = c >>> 0; } return tb; })();
+function crc32(b) { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC_TABLE[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+
+function makeZip(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  const d = new Date();
+  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  let offset = 0;
+  const used = new Set();
+  for (const f of files) {
+    let name = f.name, k = 2;
+    while (used.has(name)) name = f.name.replace(/(\.mp3)?$/i, ` (${k++})$1`);
+    used.add(name);
+    const nb = enc.encode(name), crc = crc32(f.data), size = f.data.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+    lh.setUint16(8, 0, true); lh.setUint16(10, time, true); lh.setUint16(12, date, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, size, true); lh.setUint32(22, size, true);
+    lh.setUint16(26, nb.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), nb, f.data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+    ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, time, true);
+    ch.setUint16(14, date, true); ch.setUint32(16, crc, true); ch.setUint32(20, size, true);
+    ch.setUint32(24, size, true); ch.setUint16(28, nb.length, true);
+    ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), nb);
+    offset += 30 + nb.length + size;
+  }
+  const cdSize = central.reduce((n, x) => n + x.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: "application/zip" });
+}
+/* ---------------- (END-ZIP) ---------------- */
+
+/* ---------------- output location (Chrome / Edge) ---------------- */
+const canFolder = "showDirectoryPicker" in window;
+let outDir = null, outLabel = "", needsReuseClick = false;
+
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("mp3cover", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(k, v) { try { const db = await idb(); db.transaction("kv", "readwrite").objectStore("kv").put(v, k); } catch {} }
+async function idbGet(k) {
+  try { const db = await idb(); return await new Promise(res => { const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(null); }); }
+  catch { return null; }
+}
+
+async function pickDir() {
+  let d;
+  try { d = await window.showDirectoryPicker({ id: "mp3out", mode: "readwrite", startIn: "desktop" }); }
+  catch { return false; }
+  if (d.name === "Output") { outDir = d; outLabel = "Output"; }
+  else { outDir = await d.getDirectoryHandle("Output", { create: true }); outLabel = d.name + "/Output"; }
+  needsReuseClick = false;
+  idbSet("dir", outDir); idbSet("dirLabel", outLabel);
+  renderOut();
+  return true;
+}
+async function dirReady(interactive) {
+  if (!outDir) return interactive ? pickDir() : false;
+  if (await outDir.queryPermission({ mode: "readwrite" }) === "granted") { needsReuseClick = false; renderOut(); return true; }
+  if (!interactive) { needsReuseClick = true; renderOut(); return false; }
+  const ok = await outDir.requestPermission({ mode: "readwrite" }) === "granted";
+  needsReuseClick = !ok; renderOut();
+  return ok;
+}
+function mode() { return canFolder && $("modeFolder").checked ? "folder" : "zip"; }
+function renderOut() {
+  const folder = mode() === "folder";
+  $("folderRow").hidden = !folder;
+  $("batchWrap").style.display = folder ? "none" : "";
+  $("noFolder").hidden = canFolder;
+  $("modeFolder").disabled = !canFolder;
+  $("outLabel").textContent = outDir ? t("outTo", "📁 " + outLabel) : t("notSet");
+  $("dirBtn").textContent = needsReuseClick ? t("reuseDir", outLabel) : outDir ? t("changeDir") : t("pickDir");
+  $("dirBtn").classList.toggle("primary", !outDir || needsReuseClick);
+  $("dirBtn").classList.toggle("pulse", folder && pending() > 0 && (!outDir || needsReuseClick));
+}
+$("dirBtn").onclick = async () => {
+  const ok = needsReuseClick ? await dirReady(true) : await pickDir();
+  if (ok && pending()) run();
+};
+document.getElementsByName("mode").forEach(r => r.onchange = renderOut);
+
+/* ---------------- queue ---------------- */
+const items = [];
+let running = false, zipBuf = [], batchNo = 0, doneCount = 0, errCount = 0, totalCount = 0, lastMsg = "";
+const pending = () => items.filter(i => i.state === "pending").length;
+
+function setCardState(it) {
+  it.card.className = "card " + it.state;
+  it.st.className = "st" + (it.state === "done" ? " ok" : it.state === "error" ? " err" : "");
+  it.st.textContent = t(it.state === "pending" ? "waiting" : it.state);
+}
+function renderStatus() {
+  let s = totalCount ? t("count", doneCount, totalCount) + (errCount ? t("errCount", errCount) : "") : "";
+  if (lastMsg) s += (s ? " · " : "") + lastMsg;
+  $("status").textContent = s;
+  $("progFill").style.width = totalCount ? (100 * (doneCount + errCount) / totalCount) + "%" : "0";
+  $("startBtn").disabled = running || !pending();
+  $("clearBtn").disabled = running || !items.length;
+}
+
+function addFiles(files) {
+  files = files
+    .filter(f => /\.mp3$/i.test(f.name) && !f.name.startsWith("._"))
+    .filter(f => !items.some(i => i.file.name === f.name && i.file.size === f.size && i.state === "pending"))
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-HK", { numeric: true }));
+  for (const file of files) {
+    const it = { file, edited: false, state: "pending", ...parseName(file.name) };
+    const card = document.createElement("div");
+    const cv = document.createElement("canvas");
+    const fn = document.createElement("div"); fn.className = "fn"; fn.textContent = file.name;
+    const ti = document.createElement("input"); ti.type = "text"; ti.value = it.title; ti.placeholder = t("title_ph");
+    const ar = document.createElement("input"); ar.type = "text"; ar.value = it.artist; ar.placeholder = t("artist_ph");
+    const st = document.createElement("div");
+    const x = document.createElement("button"); x.className = "x"; x.textContent = "✕"; x.title = t("remove");
+    card.append(cv, x, fn, ti, ar, st);
+    $("grid").appendChild(card);
+    Object.assign(it, { card, cv, ti, ar, st });
+    const onEdit = () => { it.title = ti.value; it.artist = ar.value; it.edited = true; drawCover(cv, it, 240); };
+    ti.oninput = ar.oninput = onEdit;
+    x.onclick = () => {
+      if (it.state === "working") return;
+      card.remove(); items.splice(items.indexOf(it), 1);
+      if (it.state === "pending") totalCount--;
+      renderStatus(); renderOut();
+    };
+    drawCover(cv, it, 240); // small preview only, to save memory
+    setCardState(it);
+    items.push(it);
+    totalCount++;
+  }
+  renderStatus(); renderOut();
+  if (files.length && $("auto").checked) run(false);
+}
+
+function flushZip() {
+  if (!zipBuf.length) return;
+  batchNo++;
+  const n = zipBuf.length;
+  download(makeZip(zipBuf), `MP3封面_第${String(batchNo).padStart(2, "0")}批.zip`);
+  zipBuf = []; // release memory
+  lastMsg = t("zipSaved", batchNo, n);
+}
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+}
+
+async function run(interactive = true) {
+  if (running || !pending()) return;
+  if (mode() === "folder" && !(await dirReady(interactive))) {
+    lastMsg = t("needDir"); renderStatus(); renderOut(); return;
+  }
+  running = true; lastMsg = ""; renderStatus();
+  const useFolder = mode() === "folder";
+  const batch = +$("batch").value;
+  while (true) {
+    const it = items.find(i => i.state === "pending");
+    if (!it) break;
+    it.state = "working"; setCardState(it);
+    it.card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    try {
+      const jpeg = await coverJpeg(it);
+      let mp3 = new Uint8Array(await it.file.arrayBuffer());
+      const out = embedCover(mp3, jpeg, it.title, it.artist);
+      mp3 = null;
+      if (useFolder) {
+        const fh = await outDir.getFileHandle(it.file.name, { create: true });
+        const w = await fh.createWritable(); await w.write(out); await w.close();
+      } else {
+        zipBuf.push({ name: it.file.name, data: out });
+        if (zipBuf.length >= batch) flushZip();
+      }
+      it.state = "done"; doneCount++;
+    } catch (e) {
+      it.state = "error"; errCount++;
+      $("log").textContent += `${it.file.name}: ${e.message}\n`;
+    }
+    setCardState(it);
+    if (it.state === "done" && $("autoClear").checked) {
+      it.card.remove(); items.splice(items.indexOf(it), 1);
+    }
+    renderStatus();
+    await new Promise(r => setTimeout(r, 0)); // let the page breathe
+  }
+  flushZip();
+  running = false;
+  if (!pending()) lastMsg = (lastMsg ? lastMsg + " · " : "") + t("allDone");
+  renderStatus(); renderOut();
+}
+
+$("startBtn").onclick = () => run(true);
+$("clearBtn").onclick = () => {
+  items.length = 0; $("grid").innerHTML = ""; $("log").textContent = "";
+  doneCount = errCount = totalCount = 0; lastMsg = "";
+  renderStatus(); renderOut();
+};
+
+function redrawPending(reparse) {
+  for (const it of items) {
+    if (it.state !== "pending") continue;
+    if (reparse) {
+      const p = parseName(it.file.name);
+      it.track = p.track;
+      if (!it.edited) { it.title = p.title; it.artist = p.artist; it.ti.value = p.title; it.ar.value = p.artist; }
+    }
+    drawCover(it.cv, it, 240);
+  }
+}
+["fmt", "strip"].forEach(id => $(id).onchange = () => redrawPending(true));
+["style", "font", "size", "shownum"].forEach(id => $(id).onchange = () => redrawPending(false));
+
+/* ---------------- drag & drop (files and folders) ---------------- */
+async function filesFromDrop(dt) {
+  const entries = [...dt.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) return [...dt.files];
+  const out = [];
+  async function walk(e) {
+    if (e.isFile) { try { out.push(await new Promise((r, j) => e.file(r, j))); } catch {} }
+    else if (e.isDirectory) {
+      const rd = e.createReader(); let chunk;
+      do { chunk = await new Promise((r, j) => rd.readEntries(r, j)); for (const c of chunk) await walk(c); } while (chunk.length);
+    }
+  }
+  for (const e of entries) await walk(e);
+  return out;
+}
+$("drop").onclick = () => $("pick").click();
+$("pick").onchange = e => { addFiles([...e.target.files]); e.target.value = ""; };
+let dragDepth = 0;
+window.addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; $("drop").classList.add("over"); });
+window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").classList.remove("over"); } });
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", async e => {
+  e.preventDefault(); dragDepth = 0; $("drop").classList.remove("over");
+  addFiles(await filesFromDrop(e.dataTransfer));
+});
+
+/* ---------------- start up ---------------- */
+(async () => {
+  ($(canFolder ? "modeFolder" : "modeZip")).checked = true;
+  if (canFolder) {
+    const h = await idbGet("dir");
+    if (h) { outDir = h; outLabel = (await idbGet("dirLabel")) || h.name; await dirReady(false); }
+  }
+  applyLang();
+})();
+</script>
+</body>
+</html>
